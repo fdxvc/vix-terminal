@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VIX_TERMINAL_CORE</title>
+    <link href="https://fonts.googleapis.com/css2?family=Berkeley+Mono&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background-color: #000;
+            color: #0f0;
+            font-family: 'Berkeley Mono', monospace;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        .header {
+            background-color: #1a1a1a;
+            padding: 10px;
+            text-align: center;
+            border-bottom: 1px solid #333;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            padding: 10px;
+        }
+        .stat-box {
+            border: 1px solid #333;
+            padding: 10px;
+            text-align: center;
+        }
+        .chart-container {
+            width: 90%;
+            margin: 20px auto;
+            border: 1px solid #333;
+            padding: 10px;
+        }
+        .analysis-log {
+            margin: 20px;
+            padding: 10px;
+            border: 1px solid #333;
+            height: 100px;
+            overflow-y: scroll;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>VIX_TERMINAL_CORE</h1>
+        <p id="current-time"></p>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-box">
+            <h3>VIX SPOT</h3>
+            <p id="vix-spot">--</p>
+        </div>
+        <div class="stat-box">
+            <h3>VX1</h3>
+            <p id="vx1">--</p>
+        </div>
+        <div class="stat-box">
+            <h3>VX2</h3>
+            <p id="vx2">--</p>
+        </div>
+        <div class="stat-box">
+            <h3>SPREAD %</h3>
+            <p id="spread">--</p>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="vixChart"></canvas>
+    </div>
+
+    <div class="analysis-log">
+        <h3>ANALYSIS_LOG</h3>
+        <p id="analysis-text">--</p>
+    </div>
+
+    <script>
+        // Mise à jour de l'heure en temps réel
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('current-time').textContent = now.toLocaleString();
+        }
+        setInterval(updateTime, 1000);
+
+        // Récupération des données depuis l'API
+        async function fetchVixData() {
+            const response = await fetch('https://ton-backend-render.onrender.com/api/vix-data');
+            const data = await response.json();
+            return data;
+        }
+
+        // Mise à jour du DOM avec les données
+        function updateUI(data) {
+            document.getElementById('vix-spot').textContent = data.spot;
+            document.getElementById('vx1').textContent = data.futures[0];
+            document.getElementById('vx2').textContent = data.futures[1];
+
+            // Calcul du spread
+            const spread = ((data.futures[1] - data.futures[0]) / data.futures[0]) * 100;
+            document.getElementById('spread').textContent = spread.toFixed(2) + "%";
+
+            // Analyse automatique
+            const analysis = analyzeContango(data.futures[0], data.futures[1]);
+            document.getElementById('analysis-text').textContent = analysis;
+
+            // Mise à jour du graphique
+            updateChart(data);
+        }
+
+        // Analyse de la courbe (Contango/Backwardation)
+        function analyzeContango(vx1, vx2) {
+            const slope = ((vx2 - vx1) / vx1) * 100;
+            if (slope > 5) {
+                return "NORMAL CONTANGO - ROLL YIELD NEGATIVE\n" +
+                       "Implications : Les ETF comme VXX subissent une érosion due au roll des contrats.";
+            } else if (slope < 0) {
+                return "BACKWARDATION DETECTED - MARKET STRESS HIGH\n" +
+                       "Implications : Les produits comme UVXY peuvent surperformer en cas de crise.";
+            } else {
+                return "NEUTRAL TERM STRUCTURE - NO CLEAR SIGNAL";
+            }
+        }
+
+        // Graphique Chart.js
+        let vixChart;
+        function updateChart(data) {
+            const ctx = document.getElementById('vixChart').getContext('2d');
+            const labels = ['Spot', 'VX1', 'VX2', 'VX3', 'VX4', 'VX5', 'VX6'];
+            const values = [data.spot, ...data.futures];
+
+            // Couleur de la ligne (Contango/Backwardation)
+            const lineColor = (values[1] < values[2]) ? '#00ff00' : '#ff0000';
+
+            if (vixChart) {
+                vixChart.destroy();
+            }
+
+            vixChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'VIX Term Structure',
+                        data: values,
+                        borderColor: lineColor,
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { beginAtZero: false }
+                    }
+                }
+            });
+        }
+
+        // Boucle principale
+        async function main() {
+            try {
+                const data = await fetchVixData();
+                updateUI(data);
+                setInterval(async () => {
+                    const newData = await fetchVixData();
+                    updateUI(newData);
+                }, 900000); // Rafraîchissement toutes les 15 minutes
+            } catch (error) {
+                document.getElementById('analysis-text').textContent = `Erreur: ${error.message}`;
+            }
+        }
+
+        main();
+    </script>
+</body>
+</html>
